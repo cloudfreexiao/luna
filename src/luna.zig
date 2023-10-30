@@ -20,19 +20,22 @@ pub const LuaNumber = c.lua_Number;
 pub const LuaUnsigned = c.lua_Unsigned;
 
 /// The maximum integer value that `Integer` can store
-pub const max_integer = c.LUA_MAXINTEGER;
+pub const LuaMaxInteger = c.LUA_MAXINTEGER;
 
 /// The minimum integer value that `Integer` can store
-pub const min_integer = c.LUA_MININTEGER;
+pub const LuaMinInteger = c.LUA_MININTEGER;
 
 /// Index of the regsitry in the stack (pseudo-index)
-pub const registry_index = c.LUA_REGISTRYINDEX;
+pub const LuaRegistryIndex = c.LUA_REGISTRYINDEX;
 
 /// Index of globals in the registry
-pub const ridx_globals = c.LUA_RIDX_GLOBALS;
+pub const LuaRidxGlobals = c.LUA_RIDX_GLOBALS;
 
 /// Index of the main thread in the registry
-pub const ridx_mainthread = c.LUA_RIDX_MAINTHREAD;
+pub const LuaRidxMainThread = c.LUA_RIDX_MAINTHREAD;
+
+/// Option for multiple returns in `Lua.protectedCall()` and `Lua.call()`
+pub const LuaMultRet = c.LUA_MULTRET;
 
 // Lua constants and types are declared below in alphabetical order
 // For constants that have a logical grouping (like Operators), Zig enums are used for type safety
@@ -42,7 +45,7 @@ pub const ridx_mainthread = c.LUA_RIDX_MAINTHREAD;
 /// `osize` is the original size or a code, and `nsize` is the new size
 ///
 /// See https://www.lua.org/manual/5.4/manual.html#lua_Alloc for more details
-pub const LuaAllocFn = *const fn (data: ?*anyopaque, ptr: ?*anyopaque, osize: usize, nsize: usize) callconv(.C) ?*anyopaque;
+pub const LuaAlloc = *const fn (data: ?*anyopaque, ptr: ?*anyopaque, osize: usize, nsize: usize) callconv(.C) ?*anyopaque;
 
 /// Type for C functions
 /// See https://www.lua.org/manual/5.4/manual.html#lua_CFunction for the protocol
@@ -103,13 +106,38 @@ pub const LuaThreadResumeStatus = enum(u1) {
 
 /// Status that a thread can be in
 /// Usually errors are reported by a Zig error rather than a status enum value
-pub const LuaStatusEnum = enum(u3) {
+pub const LuaStatus = enum(u3) {
     ok = LuaThreadStatus.ok,
     yield = LuaThreadStatus.yield,
     err_runtime = LuaThreadStatus.err_runtime,
     err_syntax = LuaThreadStatus.err_syntax,
     err_memory = LuaThreadStatus.err_memory,
     err_error = LuaThreadStatus.err_error,
+};
+
+/// Operations supported by `Lua.arith()`
+pub const LuaArithOperator = enum(u4) {
+    add = c.LUA_OPADD,
+    sub = c.LUA_OPSUB,
+    mul = c.LUA_OPMUL,
+    div = c.LUA_OPDIV,
+    int_div = c.LUA_OPIDIV,
+    mod = c.LUA_OPMOD,
+    pow = c.LUA_OPPOW,
+    negate = c.LUA_OPUNM,
+    bnot = c.LUA_OPBNOT,
+    band = c.LUA_OPBAND,
+    bor = c.LUA_OPBOR,
+    bxor = c.LUA_OPBXOR,
+    shl = c.LUA_OPSHL,
+    shr = c.LUA_OPSHR,
+};
+
+/// Operations supported by `Lua.compare()`
+pub const LuaCompareOperator = enum(u2) {
+    eq = c.LUA_OPEQ,
+    lt = c.LUA_OPLT,
+    le = c.LUA_OPLE,
 };
 
 /// The internal Lua debug structure
@@ -225,6 +253,22 @@ pub const LuaEvent = enum(u3) {
 /// Modes used for `Lua.load()`
 pub const LuaMode = enum(u2) { binary, text, binary_text };
 
+/// The superset of all errors returned from ziglua
+pub const LunaError = error{
+    /// A generic failure (used when a function can only fail in one way)
+    Fail,
+    /// A runtime error
+    Runtime,
+    /// A syntax error during precompilation
+    Syntax,
+    /// A memory allocation error
+    Memory,
+    /// An error while running the message handler
+    MsgHandler,
+    /// A file-releated error
+    File,
+};
+
 // Helper functions to make the ziglua API easier to use
 
 /// Casts the opaque pointer to a pointer of the given type with the proper alignment
@@ -295,7 +339,7 @@ pub const LunaState = struct {
 
     /// Creates a new independent state and returns its main thread
     /// See https://www.lua.org/manual/5.4/manual.html#lua_newstate
-    pub fn luna_newstate(alloc_fn: LuaAllocFn, data: ?*anyopaque) !LunaState {
+    pub fn luna_newstate(alloc_fn: LuaAlloc, data: ?*anyopaque) !LunaState {
         const state = c.lua_newstate(alloc_fn, data) orelse return error.Memory;
         return LunaState{ .state = state };
     }
@@ -310,6 +354,20 @@ pub const LunaState = struct {
     /// See https://www.lua.org/manual/5.4/manual.html#lua_absindex
     pub fn luna_absindex(L: *LunaState, index: i32) i32 {
         return c.lua_absindex(L.state, index);
+    }
+
+    /// Performs an arithmetic or bitwise operation over the value(s) at the top of the stack,
+    /// with the value at the top being the second operand. Pushes the result of the operation.
+    /// This function follows the semantics of the corresponding Lua operator and may call metamethods
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_arith
+    pub fn luna_arith(L: *LunaState, op: LuaArithOperator) void {
+        c.lua_arith(L.state, @intFromEnum(op));
+    }
+
+    /// Sets a new panic function and returns the old one
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_atpanic
+    pub fn luna_atpanic(L: *LunaState, panic_fn: LuaCFunction) ?LuaCFunction {
+        return c.lua_atpanic(L.state, panic_fn);
     }
 
     /// Calls a function (or any callable value)
@@ -363,6 +421,12 @@ pub const LunaState = struct {
         _ = c.lua_gc(L.state, c.LUA_GCRESTART, 0);
     }
 
+    /// Performs an incremental step of garbage collection corresponding to the allocation of step_size Kbytes
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_gc
+    pub fn luna_gc_step(lua: *LunaState, step_size: i32) void {
+        _ = c.lua_gc(lua.state, c.LUA_GCSTEP, step_size);
+    }
+
     /// Changes the collector to generational mode
     /// Returns true if the previous mode was incremental
     /// See https://www.lua.org/manual/5.4/manual.html#lua_gc
@@ -404,10 +468,18 @@ pub const LunaState = struct {
     /// Returns the memory allocation function of a given state
     /// If data is not null, it is set to the opaque pointer given when the allocator function was set
     /// See https://www.lua.org/manual/5.4/manual.html#lua_getallocf
-    pub fn luna_getallocf(L: *LunaState, data: ?**anyopaque) LuaAllocFn {
+    pub fn luna_getallocf(L: *LunaState, data: ?**anyopaque) LuaAlloc {
         // Assert cannot be null because it is impossible (and not useful) to pass null
         // to the functions that set the allocator (setallocf and newstate)
         return c.lua_getallocf(L.state, @ptrCast(data)).?;
+    }
+
+    /// Returns a slice of a raw memory area associated with the given Lua state
+    /// The application may use this area for any purpose; Lua does not use it for anything
+    /// This area has a size of a pointer to void
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_getextraspace
+    pub fn luna_getextraspace(L: *LunaState) []u8 {
+        return @as([*]u8, @ptrCast(c.lua_getextraspace(L.state).?))[0..@sizeOf(isize)];
     }
 
     /// Pushes onto the stack the value t[key] where t is the value at the given index
@@ -514,6 +586,12 @@ pub const LunaState = struct {
         return c.lua_isnil(L.state, index);
     }
 
+    /// Returns true if the given index is not valid
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_isnone
+    pub fn luna_isnone(L: *LunaState, index: i32) bool {
+        return c.lua_isnone(L.state, index);
+    }
+
     /// Returns true if the given index is not valid or if the value at the index is nil
     /// See https://www.lua.org/manual/5.4/manual.html#lua_isnoneornil
     pub fn luna_isnoneornil(L: *LunaState, index: i32) bool {
@@ -610,10 +688,11 @@ pub const LunaState = struct {
     /// Tries to convert a Lua float into a Lua integer
     /// Returns an error if the conversion was unsuccessful
     /// See https://www.lua.org/manual/5.4/manual.html#lua_numbertointeger
-    pub fn luna_numbertointeger(n: LuaNumber, i: *LuaInteger) !void {
+    pub fn luna_numbertointeger(L: *LunaState, n: LuaNumber, i: *LuaInteger) !void {
         // translate-c failure
         // return c.lua_numbertointeger(n, i) != 0;
-        const min_float: LuaNumber = @floatFromInt(min_integer);
+        _ = L;
+        const min_float: LuaNumber = @floatFromInt(LuaMinInteger);
         if (n >= min_float and n < -min_float) {
             i.* = @intFromFloat(n);
         } else return error.Fail;
@@ -680,7 +759,7 @@ pub const LunaState = struct {
         // lua_pushglobaltable is a macro and c-translate assumes it returns opaque
         // so just reimplement the macro here
         // c.lua_pushglobaltable(lua.state);
-        _ = L.luna_rawgeti(registry_index, ridx_globals);
+        _ = L.luna_rawgeti(LuaRegistryIndex, LuaRidxGlobals);
     }
 
     // Pushes an integer with value `n` onto the stack
@@ -801,7 +880,7 @@ pub const LunaState = struct {
 
     /// Removes the element at the given valid `index` shifting down elements to fill the gap
     /// See https://www.lua.org/manual/5.4/manual.html#lua_remove
-    pub fn lua_remove(L: *LunaState, index: i32) void {
+    pub fn luna_remove(L: *LunaState, index: i32) void {
         // translate-c cannot translate this macro correctly
         // c.lua_remove(lua.state, index);
         L.luna_rotate(index, -1);
@@ -841,6 +920,14 @@ pub const LunaState = struct {
         if (c.lua_closethread(L.state, if (from) |f| f.state else null) != LuaThreadStatus.ok) return error.Fail;
     }
 
+    /// Compares two Lua values
+    /// Returns true if the value at index1 satisisfies the comparison with the value at index2
+    /// Returns false otherwise, or if any index is not valid
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_compare
+    pub fn luna_compare(L: *LunaState, index1: i32, index2: i32, op: LuaCompareOperator) bool {
+        return c.lua_compare(L.state, index1, index2, @intFromEnum(op)) != 0;
+    }
+
     /// Starts and resumes a coroutine in the given thread
     /// See https://www.lua.org/manual/5.4/manual.html#lua_resume
     pub fn luna_resume(L: *LunaState, from: ?LunaState, num_args: i32, num_results: *i32) !LuaThreadResumeStatus {
@@ -856,7 +943,7 @@ pub const LunaState = struct {
 
     /// Changes the allocator function of a given state to `alloc_fn` with userdata `data`
     /// See https://www.lua.org/manual/5.4/manual.html#lua_setallocf
-    pub fn luna_setallocf(L: *LunaState, alloc_fn: LuaAllocFn, data: ?*anyopaque) void {
+    pub fn luna_setallocf(L: *LunaState, alloc_fn: LuaAlloc, data: ?*anyopaque) void {
         c.lua_setallocf(L.state, alloc_fn, data);
     }
 
@@ -905,7 +992,7 @@ pub const LunaState = struct {
 
     /// Returns the status of this thread
     /// See https://www.lua.org/manual/5.4/manual.html#lua_status
-    pub fn luna_status(lua: *LunaState) LuaStatusEnum {
+    pub fn luna_status(lua: *LunaState) LuaStatus {
         return @enumFromInt(c.lua_status(lua.state));
     }
 
@@ -1027,8 +1114,22 @@ pub const LunaState = struct {
 
     /// Returns the version number of this core
     /// See https://www.lua.org/manual/5.4/manual.html#lua_version
-    pub fn luan_version(L: *LunaState) LuaNumber {
+    pub fn luna_version(L: *LunaState) LuaNumber {
         return c.lua_version(L.state);
+    }
+
+    /// Emits a warning with the given `msg`
+    /// A message with `to_cont` as true should be continued in a subsequent call to the function
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_warning
+    pub fn luna_warning(L: *LunaState, msg: [:0]const u8, to_cont: bool) void {
+        c.lua_warning(L.state, msg.ptr, @intFromBool(to_cont));
+    }
+
+    /// Sets the warning function to be used by Lua to emit warnings
+    /// The `data` parameter sets the value `data` passed to the warning function
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_setwarnf
+    pub fn luna_setwarnf(L: *LunaState, warn_fn: LuaWarnFunction, data: ?*anyopaque) void {
+        c.lua_setwarnf(L.state, warn_fn, data);
     }
 
     /// Pops `num` values from the current stack and pushes onto the stack of `to`
@@ -1043,6 +1144,14 @@ pub const LunaState = struct {
     pub fn luna_yield(L: *LunaState, num_results: i32) noreturn {
         // translate-c failed to pass NULL correctly
         _ = c.lua_yieldk(L.state, num_results, 0, null);
+        unreachable;
+    }
+
+    /// Yields this coroutine (thread)
+    /// This function never returns
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_yieldk
+    pub fn luna_yieldk(lua: *LunaState, num_results: i32, ctx: LuaKContext, k: LuaKFunction) noreturn {
+        _ = c.lua_yieldk(lua.state, num_results, ctx, k);
         unreachable;
     }
 
@@ -1326,6 +1435,13 @@ pub const LunaState = struct {
     pub fn lunaL_error(L: *LunaState, fmt: [:0]const u8, args: anytype) noreturn {
         _ = @call(.auto, c.luaL_error, .{ L.state, fmt.ptr } ++ args);
         unreachable;
+    }
+
+    /// Loads and runs the given string
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_dostring
+    pub fn lunaL_dostring(L: *LunaState, str: [:0]const u8) !void {
+        try L.lunaL_loadstring(str);
+        try L.luna_pcall(0, LuaMultRet, 0);
     }
 
     /// Pushes onto the stack the field `e` from the metatable of the object at index `obj`
@@ -1645,7 +1761,7 @@ pub const LunaBuffer = struct {
 
     /// Equivalent to prepSize with a buffer size of Buffer.buffer_size
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_prepbuffer
-    pub fn prep(buf: *LunaBuffer) []u8 {
+    pub fn lunaL_prepbuffer(buf: *LunaBuffer) []u8 {
         return buf.lunaL_prepbuffsize(buffer_size)[0..buffer_size];
     }
 
@@ -1672,7 +1788,7 @@ pub const LunaBuffer = struct {
 
 pub const ZigFunction = fn (lua: *LunaState) i32;
 pub const ZigHook = fn (lua: *LunaState, event: LuaEvent, info: *LuaDebugInfo) void;
-pub const ZigKFunction = fn (lua: *LunaState, status: LuaStatusEnum, ctx: LuaKContext) i32;
+pub const ZigKFunction = fn (lua: *LunaState, status: LuaStatus, ctx: LuaKContext) i32;
 pub const ZigReader = fn (lua: *LunaState, data: *anyopaque) ?[]const u8;
 pub const ZigWarnFunction = fn (data: ?*anyopaque, msg: []const u8, to_cont: bool) void;
 pub const ZigWriter = fn (lua: *LunaState, buf: []const u8, data: *anyopaque) bool;
@@ -1736,7 +1852,7 @@ fn wrapZigKFunction(comptime f: ZigKFunction) LuaKFunction {
         fn inner(state: ?*LuaState, status: c_int, ctx: LuaKContext) callconv(.C) c_int {
             // this is called by Lua, state should never be null
             var lua: LunaState = .{ .state = state.? };
-            return @call(.always_inline, f, .{ &lua, @as(LuaStatusEnum, @enumFromInt(status)), ctx });
+            return @call(.always_inline, f, .{ &lua, @as(LuaStatus, @enumFromInt(status)), ctx });
         }
     }.inner;
 }
