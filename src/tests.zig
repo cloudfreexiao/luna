@@ -55,7 +55,7 @@ fn failing_alloc(data: ?*anyopaque, ptr: ?*anyopaque, osize: usize, nsize: usize
 test "initialization" {
     // initialize the Zig wrapper
     var lua = try Luna.init(testing.allocator);
-    try expectEqual(LuaStatus.ok, lua.status());
+    try expectEqual(LuaStatus.ok, lua.luna_status());
     lua.deinit();
 
     // attempt to initialize the Zig wrapper with no memory
@@ -63,14 +63,14 @@ test "initialization" {
 
     // use the library directly
     lua = try Luna.luna_newstate(alloc, null);
-    lua.close();
+    lua.luna_close();
 
     // use the library with a bad AllocFn
-    try expectError(error.Memory, Luna.newState(failing_alloc, null));
+    try expectError(error.Memory, Luna.luna_newstate(failing_alloc, null));
 
     // use the auxiliary library (uses libc realloc and cannot be checked for leaks!)
     lua = try Luna.lunaL_newstate();
-    lua.close();
+    lua.luna_close();
 }
 
 // until issue #1717 we need to use the struct workaround
@@ -254,7 +254,7 @@ test "type of and getting values" {
 
     // the created thread should equal the main thread (but created thread has no allocator ref)
     try expectEqual(lua.state, (try lua.luna_tothread(7)).state);
-    try expectEqual(@as(luna.LuaCFunction, luna.wrap(add)), try lua.toCFunction(9));
+    try expectEqual(@as(luna.LuaCFunction, luna.wrap(add)), try lua.luna_tocfunction(9));
 
     try expectEqual(@as(LuaNumber, 0.1), try lua.luna_tonumber(6));
     try expectEqual(@as(LuaInteger, 1), try lua.luna_tointeger(3));
@@ -306,7 +306,7 @@ test "filling and checking the stack" {
 
     // We want to push 30 values onto the stack
     // this should work without fail
-    try lua.lunaL_checkstack(30);
+    try lua.luna_checkstack(30);
 
     var count: i32 = 0;
     while (count < 30) : (count += 1) {
@@ -316,7 +316,7 @@ test "filling and checking the stack" {
     try expectEqual(@as(i32, 30), lua.luna_gettop());
 
     // this should fail (beyond max stack size)
-    try expectError(error.Fail, lua.lunaL_checkstack(1_000_000));
+    try expectError(error.Fail, lua.luna_checkstack(1_000_000));
 
     // this is small enough it won't fail (would raise an error if it did)
     lua.lunaL_checkstack(40, null);
@@ -350,11 +350,11 @@ test "stack manipulation" {
 
     lua.luna_remove(2);
     try expect(lua.luna_isnil(1));
-    try expect(lua.isInteger(2));
+    try expect(lua.luna_isinteger(2));
 
     lua.luna_insert(1);
-    try expect(lua.isInteger(1));
-    try expect(lua.isNil(2));
+    try expect(lua.luna_isinteger(1));
+    try expect(lua.luna_isnil(2));
 
     lua.luna_replace(2);
     try expect(lua.luna_isinteger(2));
@@ -374,7 +374,7 @@ test "calling a function" {
     var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
-    lua.register("luna_add", luna.wrap(add));
+    lua.luna_register("luna_add", luna.wrap(add));
     _ = try lua.luna_getglobal("luna_add");
 
     lua.luna_pushinteger(10);
@@ -400,7 +400,7 @@ test "string buffers" {
     defer lua.deinit();
 
     var buffer: LunaBuffer = undefined;
-    buffer.init(lua);
+    buffer.lunaL_buffinit(lua);
     try expectEqual(@as(usize, 0), buffer.lunaL_bufflen());
 
     buffer.lunaL_addchar('z');
@@ -409,7 +409,7 @@ test "string buffers" {
     buffer.lunaL_addstring("lua");
     try expectEqual(@as(usize, 6), buffer.lunaL_bufflen());
 
-    buffer.sub(3);
+    buffer.lunaL_buffsub(3);
     try expectEqual(@as(usize, 3), buffer.lunaL_bufflen());
 
     var str = buffer.lunaL_prepbuffsize(3);
@@ -543,7 +543,7 @@ test "warn fn" {
         }
     }.inner);
 
-    lua.setWarnF(warnFn, null);
+    lua.luna_setwarnf(warnFn, null);
     lua.luna_warning("this will be caught by the warnFn", false);
 }
 
@@ -620,7 +620,7 @@ test "table access" {
     _ = lua.luna_pushstring("zig");
     lua.luna_rawset(1);
 
-    try expectError(error.Fail, lua.lunaL_getmetatable(1));
+    try expectError(error.Fail, lua.luna_getmetatable(1));
 
     // create a metatable (it isn't a useful one)
     lua.luna_newtable();
@@ -628,7 +628,7 @@ test "table access" {
     lua.luna_setfield(-2, "__len");
     lua.luna_setmetatable(1);
 
-    try lua.lunaL_getmetatable(1);
+    try lua.luna_getmetatable(1);
     _ = try lua.lunaL_getmetafield(1, "__len");
     try expectError(error.Fail, lua.lunaL_getmetafield(1, "__index"));
 
@@ -696,7 +696,7 @@ test "threads" {
     lua.luna_pushinteger(10);
     lua.luna_pushnil();
 
-    lua.xMove(new_thread, 2);
+    lua.luna_xmove(new_thread, 2);
     try expectEqual(@as(i32, 2), new_thread.luna_gettop());
 }
 
@@ -743,7 +743,7 @@ test "upvalues" {
             var counter = l.luna_tointeger(l.luna_upvalueindex(1)) catch 0;
             counter += 1;
             l.luna_pushinteger(counter);
-            l.luna_copy(-1, l.upvalueIndex(1));
+            l.luna_copy(-1, l.luna_upvalueindex(1));
             return 1;
         }
     }.inner;
@@ -845,13 +845,13 @@ test "raise error" {
     const makeError = struct {
         fn inner(l: *Luna) i32 {
             _ = l.luna_pushstring("makeError made an error");
-            l.lunaL_error();
+            l.luna_error();
             return 0;
         }
     }.inner;
 
-    lua.pushFunction(luna.wrap(makeError));
-    try expectError(error.Runtime, lua.lua_pcall(0, 0, 0));
+    lua.luna_pushcfunction(luna.wrap(makeError));
+    try expectError(error.Runtime, lua.luna_pcall(0, 0, 0));
     try expectEqualStrings("makeError made an error", try lua.luna_tolstring(-1));
 }
 

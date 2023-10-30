@@ -50,7 +50,7 @@ pub fn main() anyerror!void {
         };
 
         // Execute a line of Lua code
-        L.pcall(0, 0, 0) catch {
+        L.luna_pcall(0, 0, 0) catch {
             // Error handling here is the same as above.
             try stdout.print("{s}\n", .{L.luna_tostring(-1) catch unreachable});
             L.luna_pop(1);

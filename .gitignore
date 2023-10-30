@@ -4,5 +4,5 @@
 *.dSYM
 .DS_Store
 .vscode
-.vs
 zig-cache
+zig-out

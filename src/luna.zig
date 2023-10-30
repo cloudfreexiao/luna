@@ -383,8 +383,8 @@ pub const Luna = struct {
     /// Returns an error if more stack space cannot be allocated
     /// Never shrinks the stack
     /// See https://www.lua.org/manual/5.4/manual.html#lua_checkstack
-    pub fn luna_checkstack(L: *Luna, n: i32) bool {
-        return c.lua_checkstack(L.state, n) == 0;
+    pub fn luna_checkstack(L: *Luna, n: i32) !void {
+        if (c.lua_checkstack(L.state, n) == 0) return error.Fail;
     }
 
     /// Concatenates the n values at the top of the stack, pops them, and leaves the result at the top
@@ -412,13 +412,13 @@ pub const Luna = struct {
     /// Stops the garbage collector
     /// See https://www.lua.org/manual/5.4/manual.html#lua_gc
     pub fn luna_gc_stop(L: *Luna) void {
-        _ = c.lua_gc(L.state, c.LUA_GCSTOP, 0);
+        _ = c.lua_gc(L.state, c.LUA_GCSTOP);
     }
 
     /// Restarts the garbage collector
     /// See https://www.lua.org/manual/5.4/manual.html#lua_gc
     pub fn luna_gc_restart(L: *Luna) void {
-        _ = c.lua_gc(L.state, c.LUA_GCRESTART, 0);
+        _ = c.lua_gc(L.state, c.LUA_GCRESTART);
     }
 
     /// Performs an incremental step of garbage collection corresponding to the allocation of step_size Kbytes
@@ -450,19 +450,19 @@ pub const Luna = struct {
     /// Returns the current amount of memory (in Kbytes) in use by Lua
     /// See https://www.lua.org/manual/5.4/manual.html#lua_gc
     pub fn luna_gc_count(L: *Luna) i32 {
-        return c.lua_gc(L.state, c.LUA_GCCOUNT, 0);
+        return c.lua_gc(L.state, c.LUA_GCCOUNT);
     }
 
     /// Returns the current amount of memory (in Kbytes) in use by Lua
     /// See https://www.lua.org/manual/5.4/manual.html#lua_gc
     pub fn luna_gc_countb(L: *Luna) i32 {
-        return c.lua_gc(L.state, c.LUA_GCCOUNTB, 0);
+        return c.lua_gc(L.state, c.LUA_GCCOUNTB);
     }
 
     /// Returns the current amount of memory (in Kbytes) in use by Lua
     /// See https://www.lua.org/manual/5.4/manual.html#lua_gc
-    pub fn luna_gc_collect(L: *Luna) i32 {
-        return c.lua_gc(L.state, c.LUA_GCCOLLECT, 0);
+    pub fn luna_gc_collect(L: *Luna) void {
+        _ = c.lua_gc(L.state, c.LUA_GCCOLLECT);
     }
 
     /// Returns the memory allocation function of a given state
@@ -517,8 +517,8 @@ pub const Luna = struct {
     /// If the value at the given index has a metatable, the function pushes that metatable onto the stack
     /// Otherwise an error is returned
     /// See https://www.lua.org/manual/5.4/manual.html#lua_getmetatable
-    pub fn luna_getmetatable(L: *Luna, index: i32) bool {
-        return c.lua_getmetatable(L.state, index) != 0;
+    pub fn luna_getmetatable(L: *Luna, index: i32) !void {
+        if (c.lua_getmetatable(L.state, index) == 0) return error.Fail;
     }
 
     /// Pushes onto the stack the value t[k] where t is the value at the given index and k is the value on the top of the stack
@@ -1696,7 +1696,7 @@ pub const LunaBuffer = struct {
     pub fn lunaL_addchar(buf: *LunaBuffer, byte: u8) void {
         // could not be translated by translate-c
         var lua_buf = &buf.b;
-        if (lua_buf.n >= lua_buf.size) _ = buf.prepSize(1);
+        if (lua_buf.n >= lua_buf.size) _ = buf.lunaL_prepbuffsize(1);
         lua_buf.b[lua_buf.n] = byte;
         lua_buf.n += 1;
     }
