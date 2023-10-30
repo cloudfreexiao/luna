@@ -2,7 +2,6 @@ const std = @import("std");
 const luna = @import("luna.zig");
 const testing = std.testing;
 
-const LunaState = luna.LunaState;
 const LuaAlloc = luna.LuaAlloc;
 const LuaDebugInfo = luna.LuaDebugInfo;
 const LuaEvent = luna.LuaEvent;
@@ -11,6 +10,7 @@ const LuaType = luna.LuaType;
 const LuaNumber = luna.LuaNumber;
 const LuaStatus = luna.LuaStatus;
 
+const Luna = luna.Luna;
 const LunaError = luna.LunaError;
 const LunaBuffer = luna.LunaBuffer;
 
@@ -54,28 +54,28 @@ fn failing_alloc(data: ?*anyopaque, ptr: ?*anyopaque, osize: usize, nsize: usize
 
 test "initialization" {
     // initialize the Zig wrapper
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     try expectEqual(LuaStatus.ok, lua.status());
     lua.deinit();
 
     // attempt to initialize the Zig wrapper with no memory
-    try expectError(error.Memory, LunaState.init(testing.failing_allocator));
+    try expectError(error.Memory, Luna.init(testing.failing_allocator));
 
     // use the library directly
-    lua = try LunaState.luna_newstate(alloc, null);
+    lua = try Luna.luna_newstate(alloc, null);
     lua.close();
 
     // use the library with a bad AllocFn
-    try expectError(error.Memory, LunaState.newState(failing_alloc, null));
+    try expectError(error.Memory, Luna.newState(failing_alloc, null));
 
     // use the auxiliary library (uses libc realloc and cannot be checked for leaks!)
-    lua = try LunaState.lunaL_newstate();
+    lua = try Luna.lunaL_newstate();
     lua.close();
 }
 
 // until issue #1717 we need to use the struct workaround
 const add = struct {
-    fn addInner(l: *LunaState) i32 {
+    fn addInner(l: *Luna) i32 {
         const a = l.luna_tointeger(1) catch 0;
         const b = l.luna_tointeger(2) catch 0;
         l.luna_pushinteger(a + b);
@@ -84,7 +84,7 @@ const add = struct {
 }.addInner;
 
 const sub = struct {
-    fn subInner(l: *LunaState) i32 {
+    fn subInner(l: *Luna) i32 {
         const a = l.luna_tointeger(1) catch 0;
         const b = l.luna_tointeger(2) catch 0;
         l.luna_pushinteger(a - b);
@@ -93,7 +93,7 @@ const sub = struct {
 }.subInner;
 
 test "alloc functions" {
-    var lua = try LunaState.luna_newstate(alloc, null);
+    var lua = try Luna.luna_newstate(alloc, null);
     defer lua.deinit();
 
     // get default allocator
@@ -109,7 +109,7 @@ test "alloc functions" {
 }
 
 test "luna_arith" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     lua.luna_pushnumber(10);
@@ -174,7 +174,7 @@ test "luna_arith" {
 }
 
 test "luna_compare" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     lua.luna_pushnumber(1);
@@ -191,7 +191,7 @@ test "luna_compare" {
 }
 
 test "type of and getting values" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     var value: i32 = 0;
@@ -263,7 +263,7 @@ test "type of and getting values" {
 }
 
 test "typenames" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     try expectEqualStrings("no value", lua.luna_typename(.none));
@@ -279,7 +279,7 @@ test "typenames" {
 }
 
 test "executing string contents" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
     lua.lunaL_openlibs();
 
@@ -299,7 +299,7 @@ test "executing string contents" {
 }
 
 test "filling and checking the stack" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     try expectEqual(@as(i32, 0), lua.luna_gettop());
@@ -329,7 +329,7 @@ test "filling and checking the stack" {
 }
 
 test "stack manipulation" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     // add some numbers to manipulate
@@ -371,7 +371,7 @@ test "stack manipulation" {
 }
 
 test "calling a function" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     lua.register("luna_add", luna.wrap(add));
@@ -388,7 +388,7 @@ test "calling a function" {
 }
 
 test "version" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     try expectEqual(@as(f64, 504), lua.luna_version());
@@ -396,7 +396,7 @@ test "version" {
 }
 
 test "string buffers" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     var buffer: LunaBuffer = undefined;
@@ -456,7 +456,7 @@ test "string buffers" {
 }
 
 // test "global table" {
-//     var lua = try LunaState.init(testing.allocator);
+//     var lua = try Luna.init(testing.allocator);
 //     defer lua.deinit();
 
 //     lua.lunaL_openlibs(); // !!!!!
@@ -479,7 +479,7 @@ test "string buffers" {
 // }
 
 test "function registration" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     // register all functions as part of a table
@@ -515,13 +515,13 @@ test "function registration" {
 }
 
 test "panic fn" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     // just test setting up the panic function
     // it uses longjmp so cannot return here to test
     const panicFn = luna.wrap(struct {
-        fn inner(l: *LunaState) i32 {
+        fn inner(l: *Luna) i32 {
             _ = l;
             return 0;
         }
@@ -530,7 +530,7 @@ test "panic fn" {
 }
 
 test "warn fn" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     lua.luna_warning("this message is going to the void", false);
@@ -548,7 +548,7 @@ test "warn fn" {
 }
 
 test "concat" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     _ = lua.luna_pushstring("hello ");
@@ -560,7 +560,7 @@ test "concat" {
 }
 
 test "garbage collector" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     // because the garbage collector is an opaque, unmanaged
@@ -579,7 +579,7 @@ test "garbage collector" {
 }
 
 test "extra space" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     var space: *align(1) usize = @ptrCast(lua.luna_getextraspace().ptr);
@@ -590,7 +590,7 @@ test "extra space" {
 }
 
 test "table access" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     try lua.lunaL_dostring("a = { [1] = 'first', key = 'value', ['other one'] = 1234 }");
@@ -658,7 +658,7 @@ test "table access" {
 }
 
 test "conversions" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     // number conversion
@@ -686,7 +686,7 @@ test "conversions" {
 }
 
 test "threads" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     var new_thread = lua.luna_newthread();
@@ -701,7 +701,7 @@ test "threads" {
 }
 
 test "userdata and uservalues" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     const Data = struct {
@@ -734,12 +734,12 @@ test "userdata and uservalues" {
 }
 
 test "upvalues" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     // counter from PIL
     const counter = struct {
-        fn inner(l: *LunaState) i32 {
+        fn inner(l: *Luna) i32 {
             var counter = l.luna_tointeger(l.luna_upvalueindex(1)) catch 0;
             counter += 1;
             l.luna_pushinteger(counter);
@@ -764,7 +764,7 @@ test "upvalues" {
 }
 
 test "table traversal" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     try lua.lunaL_dostring("t = { key = 'value', second = true, third = 1 }");
@@ -793,7 +793,7 @@ test "table traversal" {
 }
 
 test "registry" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     const key = "mykey";
@@ -808,7 +808,7 @@ test "registry" {
 }
 
 test "closing vars" {
-    // var lua = try LunaState.init(testing.allocator);
+    // var lua = try Luna.init(testing.allocator);
     // defer lua.deinit();
 
     // lua.open(.{ .base = true });
@@ -839,11 +839,11 @@ test "closing vars" {
 }
 
 test "raise error" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     const makeError = struct {
-        fn inner(l: *LunaState) i32 {
+        fn inner(l: *Luna) i32 {
             _ = l.luna_pushstring("makeError made an error");
             l.lunaL_error();
             return 0;
@@ -855,7 +855,7 @@ test "raise error" {
     try expectEqualStrings("makeError made an error", try lua.luna_tolstring(-1));
 }
 
-fn continuation(l: *LunaState, status: luna.LuaStatus, ctx: isize) i32 {
+fn continuation(l: *Luna, status: luna.LuaStatus, ctx: isize) i32 {
     _ = status;
 
     if (ctx == 5) {
@@ -869,13 +869,13 @@ fn continuation(l: *LunaState, status: luna.LuaStatus, ctx: isize) i32 {
 }
 
 test "yielding" {
-    var lua = try LunaState.init(testing.allocator);
+    var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
     // here we create some zig functions that will run 5 times, continutally
     // yielding a count until it finally returns the string "done"
     const willYield = struct {
-        fn inner(l: *LunaState) i32 {
+        fn inner(l: *Luna) i32 {
             return continuation(l, .ok, 0);
         }
     }.inner;
