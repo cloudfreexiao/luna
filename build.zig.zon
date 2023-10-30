@@ -1,0 +1,5 @@
+.{
+    .name = "luna",
+    .description = "Bindings to the Skynet Lua C API",
+    .version = "0.1.0",
+}
