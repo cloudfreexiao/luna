@@ -7,11 +7,20 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "debug-zig-interpreter",
+            "name": "zig-interpreter",
             "program": "${workspaceFolder}/zig-out/bin/zig-interpreter",
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "build-zig-interpreter"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "zig-function",
+            "program": "${workspaceFolder}/zig-out/bin/zig-function",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "build-zig-function"
         }
     ]
 }

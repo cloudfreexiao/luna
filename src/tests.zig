@@ -1457,7 +1457,13 @@ test "userdatauv" {
     try lua.luna_pcall(1, 0, 0);
 }
 
-test {
-    testing.refAllDecls(Luna);
-    testing.refAllDecls(LunaBuffer);
+test "skynet" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    lua.lunaL_initcodecache();
+
+    lua.luna_open_cache();
+
+    lua.luna_open_clonefunc();
 }

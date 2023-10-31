@@ -1726,22 +1726,18 @@ pub const Luna = struct {
 
     // Standard library loading functions
 
-    /// Opens the specified standard library functions
-    /// Behaves like openLibs, but allows specifying which libraries
-    /// to expose to the global table rather than all of them
-    /// See https://www.lua.org/manual/5.4/manual.html#luaL_openlibs
-    // pub fn lunaL_openlibs(L: *Luna, libs: Libs) void {
-    //     if (libs.base) lua.lunaL_requiref(c.LUA_GNAME, c.luaopen_base, true);
-    //     if (libs.coroutine) lua.lunaL_requiref(c.LUA_COLIBNAME, c.luaopen_coroutine, true);
-    //     if (libs.package) lua.lunaL_requiref(c.LUA_LOADLIBNAME, c.luaopen_package, true);
-    //     if (libs.string) lua.lunaL_requiref(c.LUA_STRLIBNAME, c.luaopen_string, true);
-    //     if (libs.utf8) lua.lunaL_requiref(c.LUA_UTF8LIBNAME, c.luaopen_utf8, true);
-    //     if (libs.table) lua.lunaL_requiref(c.LUA_TABLIBNAME, c.luaopen_table, true);
-    //     if (libs.math) lua.lunaL_requiref(c.LUA_MATHLIBNAME, c.luaopen_math, true);
-    //     if (libs.io) lua.lunaL_requiref(c.LUA_IOLIBNAME, c.luaopen_io, true);
-    //     if (libs.os) lua.lunaL_requiref(c.LUA_OSLIBNAME, c.luaopen_os, true);
-    //     if (libs.debug) lua.lunaL_requiref(c.LUA_DBLIBNAME, c.luaopen_debug, true);
-    // }
+    pub fn lunaL_initcodecache(L: *Luna) void {
+        _ = L;
+        c.luaL_initcodecache();
+    }
+
+    pub fn luna_open_cache(L: *Luna) void {
+        L.lunaL_requiref("skynet_codecache", c.luaopen_cache, true);
+    }
+
+    pub fn luna_open_clonefunc(L: *Luna) void {
+        L.lunaL_requiref("skynet_clonefunc", c.luaopen_clonefunc, true);
+    }
 
     /// Open all standard libraries
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_openlibs
