@@ -380,7 +380,7 @@ test "calling a function" {
     lua.luna_pushinteger(10);
     lua.luna_pushinteger(32);
 
-    // protectedCall is safer, but we might as well exercise call when
+    // luna_pcall is safer, but we might as well exercise call when
     // we know it should be safe
     lua.luna_call(2, 1);
 
@@ -455,28 +455,28 @@ test "string buffers" {
     try expectEqual(@as(LuaInteger, 26), try lua.luna_tointeger(-1));
 }
 
-// test "global table" {
-//     var lua = try Luna.init(testing.allocator);
-//     defer lua.deinit();
+test "global table" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
 
-//     lua.lunaL_openlibs(); // !!!!!
-//     lua.luna_pushglobaltable();
+    lua.lunaL_openlibs();
+    lua.luna_pushglobaltable();
 
-//     // find the print function
-//     _ = lua.luna_pushstring("print");
-//     try expectEqual(LuaType.function, lua.luna_gettable(-2));
+    // find the print function
+    _ = lua.luna_pushstring("print");
+    try expectEqual(LuaType.function, lua.luna_gettable(-2));
 
-//     // index the global table in the global table
-//     try expectEqual(LuaType.table, lua.luna_getfield(-2, "_G"));
+    // index the global table in the global table
+    try expectEqual(LuaType.table, lua.luna_getfield(-2, "_G"));
 
-//     // find pi in the math table
-//     try expectEqual(LuaType.table, lua.luna_getfield(-1, "math"));
-//     try expectEqual(LuaType.number, lua.luna_getfield(-1, "pi"));
+    // find pi in the math table
+    try expectEqual(LuaType.table, lua.luna_getfield(-1, "math"));
+    try expectEqual(LuaType.number, lua.luna_getfield(-1, "pi"));
 
-//     // but the string table should be nil
-//     lua.luna_pop(2);
-//     try expectEqual(LuaType.nil, lua.getField(-1, "string"));
-// }
+    // but the string table should be nil
+    lua.luna_pop(2);
+    try expectEqual(LuaType.nil, lua.luna_getfield(-1, "string"));
+}
 
 test "function registration" {
     var lua = try Luna.init(testing.allocator);
@@ -710,7 +710,7 @@ test "userdata and uservalues" {
     };
 
     // create a Lua-owned pointer to a Data with 2 associated user values
-    var data = lua.luna_newuserdatauv(Data, 2);
+    var data = lua.luna_newuserdata(Data, 2);
     data.val = 1;
     std.mem.copy(u8, &data.code, "abcd");
 
@@ -808,34 +808,34 @@ test "registry" {
 }
 
 test "closing vars" {
-    // var lua = try Luna.init(testing.allocator);
-    // defer lua.deinit();
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
 
-    // lua.open(.{ .base = true });
+    lua.lunaL_openlibs();
 
-    // // do setup in Lua for ease
-    // try lua.lunaL_dostring(
-    //     \\closed_vars = 0
-    //     \\mt = { __close = function() closed_vars = closed_vars + 1 end }
-    // );
+    // do setup in Lua for ease
+    try lua.lunaL_dostring(
+        \\closed_vars = 0
+        \\mt = { __close = function() closed_vars = closed_vars + 1 end }
+    );
 
-    // lua.newTable();
-    // _ = try lua.luna_getglobal("mt");
-    // lua.setMetatable(-2);
-    // lua.toClose(-1);
-    // lua.closeSlot(-1);
-    // lua.luna_pop(1);
+    lua.luna_newtable();
+    _ = try lua.luna_getglobal("mt");
+    lua.luna_setmetatable(-2);
+    lua.luna_toclose(-1);
+    lua.luna_closeslot(-1);
+    lua.luna_pop(1);
 
-    // lua.newTable();
-    // _ = try lua.luna_getglobal("mt");
-    // lua.setMetatable(-2);
-    // lua.toClose(-1);
-    // lua.closeSlot(-1);
-    // lua.luna_pop(1);
+    lua.luna_newtable();
+    _ = try lua.luna_getglobal("mt");
+    lua.luna_setmetatable(-2);
+    lua.luna_toclose(-1);
+    lua.luna_closeslot(-1);
+    lua.luna_pop(1);
 
-    // // this should have incremented "closed_vars" to 2
-    // _ = try lua.luna_getglobal("closed_vars");
-    // try expectEqual(@as(Number, 2), try lua.toNumber(-1));
+    // this should have incremented "closed_vars" to 2
+    _ = try lua.luna_getglobal("closed_vars");
+    try expectEqual(@as(LuaNumber, 2), try lua.luna_tonumber(-1));
 }
 
 test "raise error" {
@@ -897,4 +897,567 @@ test "yielding" {
     try expectEqualStrings("done", try thread.luna_tolstring(-1));
 }
 
-test "debug interface" {}
+test "debug interface" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    try lua.lunaL_dostring(
+        \\f = function(x)
+        \\  local y = x * 2
+        \\  y = y + 2
+        \\  return x + y
+        \\end
+    );
+    _ = try lua.luna_getglobal("f");
+
+    var info: LuaDebugInfo = undefined;
+    lua.luna_getinfo(.{
+        .@">" = true,
+        .l = true,
+        .S = true,
+        .n = true,
+        .u = true,
+        .t = true,
+    }, &info);
+
+    // get information about the function
+    try expectEqual(LuaDebugInfo.FnType.lua, info.what);
+    try expectEqual(LuaDebugInfo.NameType.other, info.name_what);
+    const len = std.mem.len(@as([*:0]u8, @ptrCast(&info.short_src)));
+    try expectEqualStrings("[string \"f = function(x)...\"]", info.short_src[0..len]);
+    try expectEqual(@as(?i32, 1), info.first_line_defined);
+    try expectEqual(@as(?i32, 5), info.last_line_defined);
+    try expectEqual(@as(u8, 1), info.num_params);
+    try expectEqual(@as(u8, 0), info.num_upvalues);
+    try expect(!info.is_tail_call);
+    try expectEqual(@as(?i32, null), info.current_line);
+
+    // create a hook
+    const hook = struct {
+        fn inner(l: *Luna, event: LuaEvent, i: *LuaDebugInfo) void {
+            switch (event) {
+                .call => {
+                    l.luna_getinfo(.{ .l = true, .r = true }, i);
+                    if (i.current_line.? != 2) panic("Expected line to be 2", .{});
+                    _ = l.luna_getlocal(i, i.first_transfer) catch unreachable;
+                    if ((l.luna_tonumber(-1) catch unreachable) != 3) panic("Expected x to equal 3", .{});
+                },
+                .line => if (i.current_line.? == 4) {
+                    // modify the value of y to be 0 right before returning
+                    l.luna_pushnumber(0);
+                    _ = l.luna_setlocal(i, 2) catch unreachable;
+                },
+                .ret => {
+                    l.luna_getinfo(.{ .l = true, .r = true }, i);
+                    if (i.current_line.? != 4) panic("Expected line to be 4", .{});
+                    _ = l.luna_getlocal(i, i.first_transfer) catch unreachable;
+                    if ((l.luna_tonumber(-1) catch unreachable) != 3) panic("Expected result to equal 3", .{});
+                },
+                else => unreachable,
+            }
+        }
+    }.inner;
+
+    // run the hook when a function is called
+    try expectEqual(@as(?luna.LuaHook, null), lua.luna_gethook());
+    try expectEqual(luna.LuaHookMask{}, lua.luna_gethookmask());
+    try expectEqual(@as(i32, 0), lua.luna_gethookcount());
+
+    lua.luna_sethook(luna.wrap(hook), .{ .call = true, .line = true, .ret = true }, 0);
+    try expectEqual(@as(?luna.LuaHook, luna.wrap(hook)), lua.luna_gethook());
+    try expectEqual(luna.LuaHookMask{ .call = true, .line = true, .ret = true }, lua.luna_gethookmask());
+
+    _ = try lua.luna_getglobal("f");
+    lua.luna_pushnumber(3);
+    try lua.luna_pcall(1, 1, 0);
+}
+
+test "debug upvalues" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    try lua.lunaL_dostring(
+        \\f = function(x)
+        \\  return function(y)
+        \\    return x + y
+        \\  end
+        \\end
+        \\addone = f(1)
+    );
+    _ = try lua.luna_getglobal("addone");
+
+    // index doesn't exist
+    try expectError(error.Fail, lua.luna_getupvalue(1, 2));
+
+    // inspect the upvalue (should be x)
+    try expectEqualStrings("x", try lua.luna_getupvalue(-1, 1));
+    try expectEqual(@as(LuaNumber, 1), try lua.luna_tonumber(-1));
+    lua.luna_pop(1);
+
+    // now make the function an "add five" function
+    lua.luna_pushnumber(5);
+    _ = try lua.luna_setupvalue(-2, 1);
+
+    // test a bad index (the valid one's result is unpredicable)
+    try expectError(error.Fail, lua.luna_upvalueid(-1, 2));
+
+    // call the new function (should return 7)
+    lua.luna_pushnumber(2);
+    try lua.luna_pcall(1, 1, 0);
+    try expectEqual(@as(LuaNumber, 7), try lua.luna_tonumber(-1));
+    lua.luna_pop(1);
+
+    try lua.lunaL_dostring(
+        \\addthree = f(3)
+    );
+
+    _ = try lua.luna_getglobal("addone");
+    _ = try lua.luna_getglobal("addthree");
+
+    // now addone and addthree share the same upvalue
+    lua.luna_upvaluejoin(-2, 1, -1, 1);
+    try expect((try lua.luna_upvalueid(-2, 1)) == try lua.luna_upvalueid(-1, 1));
+}
+
+test "getstack" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    try expectError(error.Fail, lua.luna_getstack(1));
+
+    const function = struct {
+        fn inner(l: *Luna) i32 {
+            // get info about calling lua function
+            var info = l.luna_getstack(1) catch unreachable;
+            l.luna_getinfo(.{ .n = true }, &info);
+            expectEqualStrings("g", info.name.?) catch unreachable;
+            return 0;
+        }
+    }.inner;
+
+    lua.luna_pushcfunction(luna.wrap(function));
+    lua.luna_setglobal("f");
+
+    try lua.lunaL_dostring(
+        \\g = function()
+        \\  f()
+        \\end
+        \\g()
+    );
+}
+
+test "aux check functions" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    const function = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            l.lunaL_checkany(1);
+            _ = l.lunaL_checkinteger(2);
+            _ = l.lunaL_checklstring(3);
+            _ = l.lunaL_checknumber(4);
+            _ = l.lunaL_checkstring(5);
+            l.lunaL_checktype(6, .boolean);
+            return 0;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(function);
+    lua.luna_pcall(0, 0, 0) catch {
+        try expectEqualStrings("bad argument #1 to '?' (value expected)", try lua.luna_tolstring(-1));
+        lua.luna_pop(-1);
+    };
+
+    lua.luna_pushcfunction(function);
+    lua.luna_pushnil();
+    lua.luna_pcall(1, 0, 0) catch {
+        try expectEqualStrings("bad argument #2 to '?' (number expected, got no value)", try lua.luna_tolstring(-1));
+        lua.luna_pop(-1);
+    };
+
+    lua.luna_pushcfunction(function);
+    lua.luna_pushnil();
+    lua.luna_pushinteger(3);
+    lua.luna_pcall(2, 0, 0) catch {
+        try expectEqualStrings("bad argument #3 to '?' (string expected, got no value)", try lua.luna_tolstring(-1));
+        lua.luna_pop(-1);
+    };
+
+    lua.luna_pushcfunction(function);
+    lua.luna_pushnil();
+    lua.luna_pushinteger(3);
+    _ = lua.luna_pushlstring("hello world");
+    lua.luna_pcall(3, 0, 0) catch {
+        try expectEqualStrings("bad argument #4 to '?' (number expected, got no value)", try lua.luna_tolstring(-1));
+        lua.luna_pop(-1);
+    };
+
+    lua.luna_pushcfunction(function);
+    lua.luna_pushnil();
+    lua.luna_pushinteger(3);
+    _ = lua.luna_pushlstring("hello world");
+    lua.luna_pushnumber(4);
+    lua.luna_pcall(4, 0, 0) catch {
+        try expectEqualStrings("bad argument #5 to '?' (string expected, got no value)", try lua.luna_tolstring(-1));
+        lua.luna_pop(-1);
+    };
+
+    lua.luna_pushcfunction(function);
+    lua.luna_pushnil();
+    lua.luna_pushinteger(3);
+    _ = lua.luna_pushlstring("hello world");
+    lua.luna_pushnumber(4);
+    _ = lua.luna_pushstring("hello world");
+    lua.luna_pcall(5, 0, 0) catch {
+        try expectEqualStrings("bad argument #6 to '?' (boolean expected, got no value)", try lua.luna_tolstring(-1));
+        lua.luna_pop(-1);
+    };
+
+    lua.luna_pushcfunction(function);
+    // test lunaL_pushfail here (currently acts the same as luna_pushnil)
+    lua.lunaL_pushfail();
+    lua.luna_pushinteger(3);
+    _ = lua.luna_pushlstring("hello world");
+    lua.luna_pushnumber(4);
+    _ = lua.luna_pushstring("hello world");
+    lua.luna_pushboolean(true);
+    try lua.luna_pcall(6, 0, 0);
+}
+
+test "get global fail" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    try expectError(error.Fail, lua.luna_getglobal("foo"));
+}
+
+test "metatables" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    try lua.lunaL_dostring("f = function() return 10 end");
+
+    try lua.lunaL_newmetatable("mt");
+    _ = lua.lunaL_getmetatable("mt");
+    try expect(lua.luna_compare(1, 2, .eq));
+    lua.luna_pop(1);
+
+    // set the len metamethod to the function f
+    _ = try lua.luna_getglobal("f");
+    lua.luna_setfield(1, "__len");
+
+    lua.luna_newtable();
+    lua.lunaL_setmetatable("mt");
+
+    try lua.lunaL_callmeta(-1, "__len");
+    try expectEqual(@as(LuaNumber, 10), try lua.luna_tonumber(-1));
+}
+
+test "aux opt functions" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    const function = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            expectEqual(@as(LuaInteger, 10), l.lunaL_optinteger(1, 10)) catch unreachable;
+            expectEqualStrings("zig", l.lunaL_optlstring(2, "zig")) catch unreachable;
+            expectEqual(@as(LuaNumber, 1.23), l.lunaL_optnumber(3, 1.23)) catch unreachable;
+            expectEqualStringsSentinel("lang", l.lunaL_optstring(4, "lang")) catch unreachable;
+            return 0;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(function);
+    try lua.luna_pcall(0, 0, 0);
+
+    lua.luna_pushcfunction(function);
+    lua.luna_pushinteger(10);
+    _ = lua.luna_pushlstring("zig");
+    lua.luna_pushnumber(1.23);
+    _ = lua.luna_pushstring("lang");
+    try lua.luna_pcall(4, 0, 0);
+}
+
+test "checkOption" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    const Variant = enum {
+        one,
+        two,
+        three,
+    };
+
+    const function = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            const option = l.lunaL_checkoption(Variant, 1, .one);
+            l.luna_pushinteger(switch (option) {
+                .one => 1,
+                .two => 2,
+                .three => 3,
+            });
+            return 1;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(function);
+    _ = lua.luna_pushstring("one");
+    try lua.luna_pcall(1, 1, 0);
+    try expectEqual(@as(LuaInteger, 1), try lua.luna_tointeger(-1));
+    lua.luna_pop(1);
+
+    lua.luna_pushcfunction(function);
+    _ = lua.luna_pushstring("two");
+    try lua.luna_pcall(1, 1, 0);
+    try expectEqual(@as(LuaInteger, 2), try lua.luna_tointeger(-1));
+    lua.luna_pop(1);
+
+    lua.luna_pushcfunction(function);
+    _ = lua.luna_pushstring("three");
+    try lua.luna_pcall(1, 1, 0);
+    try expectEqual(@as(LuaInteger, 3), try lua.luna_tointeger(-1));
+    lua.luna_pop(1);
+
+    // try the default now
+    lua.luna_pushcfunction(function);
+    try lua.luna_pcall(0, 1, 0);
+    try expectEqual(@as(LuaInteger, 1), try lua.luna_tointeger(-1));
+    lua.luna_pop(1);
+
+    // check the raised error
+    lua.luna_pushcfunction(function);
+    _ = lua.luna_pushstring("unknown");
+    try expectError(error.Runtime, lua.luna_pcall(1, 1, 0));
+    try expectEqualStrings("bad argument #1 to '?' (invalid option 'unknown')", try lua.luna_tolstring(-1));
+}
+
+test "globalSub" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    _ = lua.lunaL_gsub("-gity -!", "-", "zig");
+    try expectEqualStrings("ziggity zig!", try lua.luna_tolstring(-1));
+}
+
+test "loadBuffer" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    _ = try lua.lunaL_loadbufferx("global = 10", "chunkname", .text);
+    try lua.luna_pcall(0, luna.LuaMultRet, 0);
+    _ = try lua.luna_getglobal("global");
+    try expectEqual(@as(LuaInteger, 10), try lua.luna_tointeger(-1));
+}
+
+test "where" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    const whereFn = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            l.lunaL_where(1);
+            return 1;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(whereFn);
+    lua.luna_setglobal("whereFn");
+
+    try lua.lunaL_dostring(
+        \\
+        \\ret = whereFn()
+    );
+
+    _ = try lua.luna_getglobal("ret");
+    try expectEqualStrings("[string \"...\"]:2: ", try lua.luna_tolstring(-1));
+}
+
+test "ref" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    lua.luna_pushnil();
+    try expectError(error.Fail, lua.lunaL_ref(luna.LuaRegistryIndex));
+    try expectEqual(@as(LuaInteger, 0), lua.luna_gettop());
+
+    _ = lua.luna_pushlstring("Hello there");
+    const ref = try lua.lunaL_ref(luna.LuaRegistryIndex);
+
+    _ = lua.luna_rawgeti(luna.LuaRegistryIndex, ref);
+    try expectEqualStrings("Hello there", try lua.luna_tolstring(-1));
+
+    lua.lunaL_unref(luna.LuaRegistryIndex, ref);
+}
+
+test "args and errors" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    const argCheck = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            l.lunaL_argcheck(false, 1, "error!");
+            return 0;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(argCheck);
+    try expectError(error.Runtime, lua.luna_pcall(0, 0, 0));
+
+    const argExpected = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            l.lunaL_argexpected(true, 1, "string");
+            return 0;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(argExpected);
+    try expectError(error.Runtime, lua.luna_pcall(0, 0, 0));
+
+    const raisesError = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            l.lunaL_error("some error %s!", .{"zig"});
+            unreachable;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(raisesError);
+    try expectError(error.Runtime, lua.luna_pcall(0, 0, 0));
+    try expectEqualStrings("some error zig!", try lua.luna_tolstring(-1));
+}
+
+test "traceback" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    const tracebackFn = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            l.lunaL_traceback(l, "", 1);
+            return 1;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(tracebackFn);
+    lua.luna_setglobal("tracebackFn");
+    try lua.lunaL_dostring("res = tracebackFn()");
+
+    _ = try lua.luna_getglobal("res");
+    try expectEqualStrings("\nstack traceback:\n\t[string \"res = tracebackFn()\"]:1: in main chunk", try lua.luna_tolstring(-1));
+}
+
+test "getSubtable" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    try lua.lunaL_dostring(
+        \\a = {
+        \\  b = {},
+        \\}
+    );
+    _ = try lua.luna_getglobal("a");
+
+    // get the subtable a.b
+    try lua.lunaL_getsubtable(-1, "b");
+
+    // fail to get the subtable a.c (but it is created)
+    try expectError(error.Fail, lua.lunaL_getsubtable(-2, "c"));
+
+    // now a.c will pass
+    try lua.lunaL_getsubtable(-3, "b");
+}
+
+test "userdata" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    const Type = struct { a: i32, b: f32 };
+    try lua.lunaL_newmetatable("Type");
+
+    var t = lua.luna_newuserdata(Type, 0);
+    lua.lunaL_setmetatable("Type");
+    t.a = 1234;
+    t.b = 3.14;
+
+    const checkUdata = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            const ptr = l.lunaL_checkudata(Type, 1, "Type");
+            if (ptr.a != 1234) {
+                _ = l.luna_pushlstring("error!");
+                l.luna_error();
+            }
+            if (ptr.b != 3.14) {
+                _ = l.luna_pushlstring("error!");
+                l.luna_error();
+            }
+            return 1;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(checkUdata);
+    lua.luna_rotate(-2, 1);
+
+    // call checkUdata asserting that the udata passed in with the
+    // correct metatable and values
+    try lua.luna_pcall(1, 1, 0);
+
+    const testUdata = luna.wrap(struct {
+        fn inner(l: *Luna) i32 {
+            const ptr = l.lunaL_testudata(Type, 1, "Type") catch {
+                _ = l.luna_pushlstring("error!");
+                l.luna_error();
+            };
+            if (ptr.a != 1234) {
+                _ = l.luna_pushlstring("error!");
+                l.luna_error();
+            }
+            if (ptr.b != 3.14) {
+                _ = l.luna_pushlstring("error!");
+                l.luna_error();
+            }
+            return 0;
+        }
+    }.inner);
+
+    lua.luna_pushcfunction(testUdata);
+    lua.luna_rotate(-2, 1);
+
+    // call checkUdata asserting that the udata passed in with the
+    // correct metatable and values
+    try lua.luna_pcall(1, 0, 0);
+}
+
+test "userdatauv" {
+    var lua = try Luna.init(testing.allocator);
+    defer lua.deinit();
+
+    try lua.lunaL_newmetatable("FixedArray");
+
+    // create an array of 10
+    const slice = lua.luna_newuserdatauv(LuaInteger, 10, 0);
+    lua.lunaL_setmetatable("FixedArray");
+    for (slice, 1..) |*item, index| {
+        item.* = @intCast(index);
+    }
+
+    const udataFn = struct {
+        fn inner(l: *Luna) i32 {
+            _ = l.lunaL_checkudatauv(LuaInteger, 1, "FixedArray");
+            _ = l.lunaL_testudatauv(LuaInteger, 1, "FixedArray") catch unreachable;
+            const arr = l.luna_touserdatauv(LuaInteger, 1) catch unreachable;
+            for (arr, 1..) |item, index| {
+                if (item != index) l.lunaL_error("something broke!", .{});
+            }
+
+            return 0;
+        }
+    }.inner;
+
+    lua.luna_pushcfunction(luna.wrap(udataFn));
+    lua.luna_rotate(-2, 1);
+
+    try lua.luna_pcall(1, 0, 0);
+}
+
+test {
+    testing.refAllDecls(Luna);
+    testing.refAllDecls(LunaBuffer);
+}

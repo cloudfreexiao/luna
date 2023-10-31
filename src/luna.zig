@@ -350,6 +350,13 @@ pub const Luna = struct {
         c.lua_close(L.state);
     }
 
+    /// Close the to-be-closed slot at the given index and set the value to nil
+    /// The index must be the last index previously marked to be closed with toClose
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_closeslot
+    pub fn luna_closeslot(L: *Luna, index: i32) void {
+        c.lua_closeslot(L.state, index);
+    }
+
     /// Returns the acceptable index index converted into an equivalent absolute index
     /// See https://www.lua.org/manual/5.4/manual.html#lua_absindex
     pub fn luna_absindex(L: *Luna, index: i32) i32 {
@@ -665,18 +672,23 @@ pub const Luna = struct {
         return .{ .state = state };
     }
 
-    pub fn luna_newuserdata(L: *Luna, comptime T: type) *T {
-        return L.luna_newuserdatauv(T, 1);
+    /// This function allocates a new userdata of the given type with user_values associated Lua values.
+    /// Returns a pointer to the Lua-owned data
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_newuserdatauv
+    pub fn luna_newuserdata(lua: *Luna, comptime T: type, user_values: i32) *T {
+        // safe to .? because this function throws a Lua error on out of memory
+        // so the returned pointer should never be null
+        const ptr = c.lua_newuserdatauv(lua.state, @sizeOf(T), user_values).?;
+        return opaqueCast(T, ptr);
     }
 
     /// This function allocates a new userdata of the given type with user_values associated Lua values.
     /// Returns a pointer to the Lua-owned data
     /// See https://www.lua.org/manual/5.4/manual.html#lua_newuserdatauv
-    pub fn luna_newuserdatauv(L: *Luna, comptime T: type, user_values: i32) *T {
+    pub fn luna_newuserdatauv(lua: *Luna, comptime T: type, size: usize, user_values: i32) []T {
         // safe to .? because this function throws a Lua error on out of memory
-        // so the returned pointer should never be null
-        const ptr = c.lua_newuserdatauv(L.state, @sizeOf(T), user_values).?;
-        return opaqueCast(T, ptr);
+        const ptr = c.lua_newuserdatauv(lua.state, @sizeOf(T) * size, user_values).?;
+        return @as([*]T, @ptrCast(@alignCast(ptr)))[0..size];
     }
 
     /// Pops a key from the stack, and pushes a key-value pair from the table at the given index
@@ -1092,6 +1104,17 @@ pub const Luna = struct {
         return error.Fail;
     }
 
+    /// Returns a Lua-owned userdata slice of the given type at the given index.
+    /// Returns an error if the value is not a userdata.
+    /// See https://www.lua.org/manual/5.4/manual.html#lua_touserdata
+    pub fn luna_touserdatauv(L: *Luna, comptime T: type, index: i32) ![]T {
+        if (c.lua_touserdata(L.state, index)) |ptr| {
+            const size = L.luna_rawlen(index) / @sizeOf(T);
+            return @as([*]T, @ptrCast(@alignCast(ptr)))[0..size];
+        }
+        return error.Fail;
+    }
+
     /// Returns the `LuaType` of the value at the given index
     /// Note that this is equivalent to lua_type but because type is a Zig primitive it is renamed to `typeOf`
     /// See https://www.lua.org/manual/5.4/manual.html#lua_type
@@ -1381,9 +1404,9 @@ pub const Luna = struct {
     pub fn lunaL_checkoption(L: *Luna, comptime T: type, arg: i32, default: ?T) T {
         const name = blk: {
             if (default) |defaultName| {
-                break :blk L.lunaL_optstring(arg, @tagName(defaultName));
+                break :blk L.lunaL_optlstring(arg, @tagName(defaultName));
             } else {
-                break :blk L.lunaL_checkstring(arg);
+                break :blk L.lunaL_checklstring(arg);
             }
         };
 
@@ -1423,6 +1446,16 @@ pub const Luna = struct {
         return opaqueCast(T, c.luaL_checkudata(L.state, arg, name.ptr).?);
     }
 
+    /// Checks whether the function argument `arg` is a userdata of the type `name`
+    /// Returns a Lua-owned userdata slice
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_checkudata
+    pub fn lunaL_checkudatauv(L: *Luna, comptime T: type, arg: i32, name: [:0]const u8) []T {
+        // the returned pointer will not be null
+        const ptr = c.luaL_checkudata(L.state, arg, name.ptr).?;
+        const size = L.luna_rawlen(arg) / @sizeOf(T);
+        return @as([*]T, @ptrCast(@alignCast(ptr)))[0..size];
+    }
+
     /// Checks whether the code making the call and the Lua library being called are using
     /// the same version of Lua and the same numeric types.
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_checkversion
@@ -1460,6 +1493,19 @@ pub const Luna = struct {
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_getmetatable
     pub fn lunaL_getmetatable(L: *Luna, table_name: [:0]const u8) LuaType {
         return @enumFromInt(c.luaL_getmetatable(L.state, table_name.ptr));
+    }
+
+    /// Ensures that the value t[`field`], where t is the value at `index`, is a table, and pushes that table onto the stack.
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_getsubtable
+    pub fn lunaL_getsubtable(L: *Luna, index: i32, field: [:0]const u8) !void {
+        if (c.luaL_getsubtable(L.state, index, field.ptr) == 0) return error.Fail;
+    }
+
+    /// Creates a copy of string `str`, replacing any occurrence of the string `pat` with the string `rep`
+    /// Pushes the resulting string on the stack and returns it.
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_gsub
+    pub fn lunaL_gsub(lua: *Luna, str: [:0]const u8, pat: [:0]const u8, rep: [:0]const u8) [:0]const u8 {
+        return std.mem.span(c.luaL_gsub(lua.state, str.ptr, pat.ptr, rep.ptr));
     }
 
     /// Returns the "length" of the value at the given index as a number
@@ -1568,12 +1614,6 @@ pub const Luna = struct {
         return Luna{ .state = state };
     }
 
-    /// Open all standard libraries
-    /// See https://www.lua.org/manual/5.4/manual.html#luaL_openlibs
-    pub fn lunaL_openlibs(L: *Luna) void {
-        c.luaL_openlibs(L.state);
-    }
-
     /// If the function argument `arg` is an integer, returns the integer
     /// If the argument is absent or nil returns `default`
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_optinteger
@@ -1603,8 +1643,7 @@ pub const Luna = struct {
     /// If the argment is absent or nil returns `default`
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_optstring
     pub fn lunaL_optstring(L: *Luna, arg: i32, default: [:0]const u8) [*:0]const u8 {
-        // translate-c error
-        return L.lunaL_optlstring(arg, default.ptr, null);
+        return c.luaL_optlstring(L.state, arg, default.ptr, null);
     }
 
     /// Pushes the fail value onto the stack
@@ -1633,6 +1672,23 @@ pub const Luna = struct {
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_setmetatable
     pub fn lunaL_setmetatable(L: *Luna, table_name: [:0]const u8) void {
         c.luaL_setmetatable(L.state, table_name.ptr);
+    }
+
+    /// This function works like `Lua.checkUserdata()` except it returns a Zig error instead of raising a Lua error on fail
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_testudata
+    pub fn lunaL_testudata(lua: *Luna, comptime T: type, arg: i32, name: [:0]const u8) !*T {
+        if (c.luaL_testudata(lua.state, arg, name.ptr)) |ptr| {
+            return opaqueCast(T, ptr);
+        } else return error.Fail;
+    }
+
+    /// This function works like `Lua.checkUserdataSlice()` except it returns a Zig error instead of raising a Lua error on fail
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_checkudata
+    pub fn lunaL_testudatauv(L: *Luna, comptime T: type, arg: i32, name: [:0]const u8) ![]T {
+        if (c.luaL_testudata(L.state, arg, name.ptr)) |ptr| {
+            const size = L.luna_rawlen(arg) / @sizeOf(T);
+            return @as([*]T, @ptrCast(@alignCast(ptr)))[0..size];
+        } else return error.Fail;
     }
 
     /// Converts any Lua value at the given index into a string in a reasonable format
@@ -1666,6 +1722,31 @@ pub const Luna = struct {
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_where
     pub fn lunaL_where(L: *Luna, level: i32) void {
         c.luaL_where(L.state, level);
+    }
+
+    // Standard library loading functions
+
+    /// Opens the specified standard library functions
+    /// Behaves like openLibs, but allows specifying which libraries
+    /// to expose to the global table rather than all of them
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_openlibs
+    // pub fn lunaL_openlibs(L: *Luna, libs: Libs) void {
+    //     if (libs.base) lua.lunaL_requiref(c.LUA_GNAME, c.luaopen_base, true);
+    //     if (libs.coroutine) lua.lunaL_requiref(c.LUA_COLIBNAME, c.luaopen_coroutine, true);
+    //     if (libs.package) lua.lunaL_requiref(c.LUA_LOADLIBNAME, c.luaopen_package, true);
+    //     if (libs.string) lua.lunaL_requiref(c.LUA_STRLIBNAME, c.luaopen_string, true);
+    //     if (libs.utf8) lua.lunaL_requiref(c.LUA_UTF8LIBNAME, c.luaopen_utf8, true);
+    //     if (libs.table) lua.lunaL_requiref(c.LUA_TABLIBNAME, c.luaopen_table, true);
+    //     if (libs.math) lua.lunaL_requiref(c.LUA_MATHLIBNAME, c.luaopen_math, true);
+    //     if (libs.io) lua.lunaL_requiref(c.LUA_IOLIBNAME, c.luaopen_io, true);
+    //     if (libs.os) lua.lunaL_requiref(c.LUA_OSLIBNAME, c.luaopen_os, true);
+    //     if (libs.debug) lua.lunaL_requiref(c.LUA_DBLIBNAME, c.luaopen_debug, true);
+    // }
+
+    /// Open all standard libraries
+    /// See https://www.lua.org/manual/5.4/manual.html#luaL_openlibs
+    pub fn lunaL_openlibs(L: *Luna) void {
+        c.luaL_openlibs(L.state);
     }
 };
 
