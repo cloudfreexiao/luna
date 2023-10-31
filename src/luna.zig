@@ -6,10 +6,6 @@ const c = @cImport({
     @cInclude("lauxlib.h");
 });
 
-const Allocator = std.mem.Allocator;
-
-// Types
-
 /// The type of the opaque structure that points to a thread and the state of a Lua interpreter
 pub const LuaState = c.lua_State;
 /// The type of integers in Lua. By default this is `i64`.
@@ -278,7 +274,7 @@ pub inline fn opaqueCast(comptime T: type, ptr: *anyopaque) *T {
 }
 
 pub const Luna = struct {
-    allocator: ?*Allocator = null,
+    allocator: ?*std.mem.Allocator = null,
     state: *LuaState,
 
     const alignment = @alignOf(std.c.max_align_t);
@@ -289,7 +285,7 @@ pub const Luna = struct {
         // just like malloc() returns a pointer "which is suitably aligned for any built-in type",
         // the memory allocated by this function should also be aligned for any type that Lua may
         // desire to allocate. use the largest alignment for the target
-        const allocator = opaqueCast(Allocator, data.?);
+        const allocator = opaqueCast(std.mem.Allocator, data.?);
 
         if (@as(?[*]align(alignment) u8, @ptrCast(@alignCast(ptr)))) |prev_ptr| {
             const prev_slice = prev_ptr[0..osize];
@@ -313,10 +309,10 @@ pub const Luna = struct {
     }
 
     /// Initialize a Lua state with the given allocator
-    pub fn init(allocator: Allocator) !Luna {
+    pub fn init(allocator: std.mem.Allocator) !Luna {
         // the userdata passed to alloc needs to be a pointer with a consistent address
         // so we allocate an Allocator struct to hold a copy of the allocator's data
-        var allocator_ptr = allocator.create(Allocator) catch return error.Memory;
+        var allocator_ptr = allocator.create(std.mem.Allocator) catch return error.Memory;
         allocator_ptr.* = allocator;
 
         const state = c.lua_newstate(alloc, allocator_ptr) orelse return error.Memory;
