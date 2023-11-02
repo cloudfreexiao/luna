@@ -1,4 +1,4 @@
-.PHONY: docs
+.PHONY: test
 
 test:
 	zig build test --summary failures -Dversion=skynet_lua
