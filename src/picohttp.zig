@@ -1,10 +1,11 @@
+const std = @import("std");
+
+const assert = std.debug.assert;
+const fmt = std.fmt;
+
 const c = @cImport({
     @cInclude("picohttpparser.h");
 });
-
-const std = @import("std");
-const assert = std.debug.assert;
-const fmt = std.fmt;
 
 pub const PicoHeader = struct {
     name: []const u8,

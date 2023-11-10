@@ -269,7 +269,7 @@ pub const LunaError = error{
 
 /// Casts the opaque pointer to a pointer of the given type with the proper alignment
 /// Useful for casting pointers from the Lua API like userdata or other data
-pub inline fn opaqueCast(comptime T: type, ptr: *anyopaque) *T {
+inline fn opaqueCast(comptime T: type, ptr: *anyopaque) *T {
     return @ptrCast(@alignCast(ptr));
 }
 
