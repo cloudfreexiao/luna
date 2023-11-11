@@ -9,11 +9,7 @@ pub const ArtTree = c.art_tree;
 pub const ArtLeaf = c.art_leaf;
 pub const ArtCallBack = *const fn (data: ?*anyopaque, key: [*c]const u8, key_len: u32, value: ?*anyopaque) callconv(.C) c_int;
 
-inline fn opaqueCast(comptime T: type, ptr: *anyopaque) *T {
-    return @ptrCast(@alignCast(ptr));
-}
-
-pub const PicoArt = struct {
+pub const Art = struct {
     allocator: std.mem.Allocator,
     tree: ?*ArtTree = null,
 
