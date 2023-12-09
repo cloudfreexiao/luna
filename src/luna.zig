@@ -1,9 +1,7 @@
 const std = @import("std");
 
 const c = @cImport({
-    @cInclude("lua.h");
-    @cInclude("lualib.h");
-    @cInclude("lauxlib.h");
+    @cInclude("minilua.h");
 });
 
 /// The type of the opaque structure that points to a thread and the state of a Lua interpreter
@@ -313,7 +311,7 @@ pub const Luna = struct {
     pub fn init(allocator: std.mem.Allocator) !Self {
         // the userdata passed to alloc needs to be a pointer with a consistent address
         // so we allocate an Allocator struct to hold a copy of the allocator's data
-        var allocator_ptr = allocator.create(std.mem.Allocator) catch return error.Memory;
+        const allocator_ptr = allocator.create(std.mem.Allocator) catch return error.Memory;
         allocator_ptr.* = allocator;
 
         const state = c.lua_newstate(alloc, allocator_ptr) orelse return error.Memory;
@@ -1221,7 +1219,7 @@ pub const Luna = struct {
         }
         if (options.S) {
             info.source = std.mem.span(ar.source);
-            std.mem.copy(u8, &info.short_src, &ar.short_src);
+            @memcpy(&info.short_src, &ar.short_src);
             info.first_line_defined = ar.linedefined;
             info.last_line_defined = ar.lastlinedefined;
             info.what = blk: {
@@ -1717,10 +1715,6 @@ pub const Luna = struct {
         self.lunaL_requiref("skynet_codecache", c.luaopen_cache, true);
     }
 
-    pub fn luna_open_clonefunc(self: *Self) void {
-        self.lunaL_requiref("skynet_clonefunc", c.luaopen_clonefunc, true);
-    }
-
     /// Open all standard libraries
     /// See https://www.lua.org/manual/5.4/manual.html#luaL_openlibs
     pub fn lunaL_openlibs(self: *Self) void {
@@ -1937,7 +1931,7 @@ fn wrapZigWarnFunction(comptime f: ZigWarnFunction) LuaWarnFunction {
     return struct {
         fn inner(data: ?*anyopaque, msg: [*c]const u8, to_cont: c_int) callconv(.C) void {
             // warning messages emitted from Lua should be null-terminated for display
-            var message = std.mem.span(@as([*:0]const u8, @ptrCast(msg)));
+            const message = std.mem.span(@as([*:0]const u8, @ptrCast(msg)));
             @call(.always_inline, f, .{ data, message, to_cont != 0 });
         }
     }.inner;

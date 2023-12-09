@@ -72,10 +72,7 @@ pub fn build(b: *Build) void {
     }
     lib.linkLibC();
 
-    lib.installHeader(b.pathJoin(&.{ lib_dir, "lua.h" }), "lua.h");
-    lib.installHeader(b.pathJoin(&.{ lib_dir, "lualib.h" }), "lualib.h");
-    lib.installHeader(b.pathJoin(&.{ lib_dir, "lauxlib.h" }), "lauxlib.h");
-    lib.installHeader(b.pathJoin(&.{ lib_dir, "luaconf.h" }), "luaconf.h");
+    lib.installHeader(b.pathJoin(&.{ lib_dir, "minilua.h" }), "minilua.h");
 
     b.installArtifact(lib);
 
@@ -122,37 +119,5 @@ pub fn build(b: *Build) void {
 }
 
 const skynet_lua_source_files = [_][]const u8{
-    "lapi.c",
-    "lcode.c",
-    "lctype.c",
-    "ldebug.c",
-    "ldo.c",
-    "ldump.c",
-    "lfunc.c",
-    "lgc.c",
-    "llex.c",
-    "lmem.c",
-    "lobject.c",
-    "lopcodes.c",
-    "lparser.c",
-    "lstate.c",
-    "lstring.c",
-    "ltable.c",
-    "ltm.c",
-    "lundump.c",
-    "lvm.c",
-    "lzio.c",
-    "lauxlib.c",
-    "lbaselib.c",
-    "lcorolib.c",
-    "ldblib.c",
-    "liolib.c",
-    "lmathlib.c",
-    "loadlib.c",
-    "loslib.c",
-    "lstrlib.c",
-    "ltablib.c",
-    "lutf8lib.c",
-    "linit.c",
-    "clonefunc.c",
+    "minilua.c",
 };

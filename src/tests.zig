@@ -446,7 +446,7 @@ test "string buffers" {
     b[2] = 'c';
     buffer.lunaL_addsize(3);
     b = buffer.lunaL_prepbuffer();
-    std.mem.copy(u8, b, "defghijklmnopqrstuvwxyz");
+    @memcpy(b, "defghijklmnopqrstuvwxyz");
     buffer.lunaL_pushresultsize(23);
     try expectEqualStrings("abcdefghijklmnopqrstuvwxyz", lua.lunaL_tolstring(-1));
     lua.luna_pop(1);
@@ -582,7 +582,7 @@ test "extra space" {
     var lua = try Luna.init(testing.allocator);
     defer lua.deinit();
 
-    var space: *align(1) usize = @ptrCast(lua.luna_getextraspace().ptr);
+    const space: *align(1) usize = @ptrCast(lua.luna_getextraspace().ptr);
     space.* = 1024;
     // each new thread is initialized with a copy of the extra space from the main thread
     var thread = lua.luna_newthread();
@@ -712,7 +712,7 @@ test "userdata and uservalues" {
     // create a Lua-owned pointer to a Data with 2 associated user values
     var data = lua.luna_newuserdata(Data, 2);
     data.val = 1;
-    std.mem.copy(u8, &data.code, "abcd");
+    @memcpy(&data.code, "abcd");
 
     // assign the user values
     lua.luna_pushnumber(1234.56);
@@ -1464,6 +1464,9 @@ test "skynet" {
     lua.lunaL_initcodecache();
 
     lua.luna_open_cache();
+}
 
-    lua.luna_open_clonefunc();
+test {
+    testing.refAllDecls(Luna);
+    testing.refAllDecls(LunaBuffer);
 }
